@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fake News Detector</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .risk-high { background-color: #fecaca; }
+        .risk-medium { background-color: #fef3c7; }
+        .risk-low { background-color: #bbf7d0; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">
+                AI-Powered News Authenticity Checker
+            </h1>
+            <div class="mb-6 flex gap-4 justify-center">
+                <button onclick="showInput('text')" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                    Paste Text
+                </button>
+                <button onclick="showInput('url')" class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+                    Enter URL
+                </button>
+                <button onclick="showInput('file')" class="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600">
+                    Upload File
+                </button>
+            </div>
+            <div id="inputContainer" class="mb-6"></div>
+            <div id="results" class="hidden">
+                <h2 class="text-xl font-semibold mb-4">Analysis Results</h2>
+                <div id="resultContent" class="space-y-4"></div>
+            </div>
+            <div id="loading" class="hidden text-center py-4">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+                <p class="mt-2 text-gray-600">Analyzing content...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showInput(type) {
+            const container = document.getElementById('inputContainer');
+            let html = '';
+            if(type === 'text') {
+                html = `
+                    <form onsubmit="analyzeContent(event, 'text')" class="input-group">
+                        <textarea name="content" class="w-full p-3 border rounded mb-3" 
+                                  placeholder="Paste news content here..." required></textarea>
+                        <input type="text" name="title" class="w-full p-3 border rounded mb-3" 
+                               placeholder="Title (optional)">
+                        <button type="submit" class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600">
+                            Analyze Text
+                        </button>
+                    </form>`;
+            }
+            else if(type === 'url') {
+                html = `
+                    <form onsubmit="analyzeContent(event, 'url')" class="input-group">
+                        <input type="url" name="content" class="w-full p-3 border rounded mb-3" 
+                               placeholder="Enter news URL here..." required>
+                        <button type="submit" class="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600">
+                            Analyze URL
+                        </button>
+                    </form>`;
+            }
+            else if(type === 'file') {
+                html = `
+                    <form onsubmit="analyzeContent(event, 'file')" enctype="multipart/form-data" class="input-group">
+                        <input type="file" name="file" class="w-full p-3 border rounded mb-3" 
+                               accept=".txt,.pdf,.docx" required>
+                        <button type="submit" class="bg-purple-500 text-white px-6 py-2 rounded hover:bg-purple-600">
+                            Analyze File
+                        </button>
+                    </form>`;
+            }
+            container.innerHTML = html;
+        }
+
+        async function analyzeContent(e, inputType) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const content = inputType === 'file' ? formData.get('file') : formData.get('content');
+            const title = formData.get('title') || '';
+            
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+            
+            try {
+                const payload = new FormData();
+                payload.append('input_type', inputType);
+                payload.append('content', content);
+                if(title) payload.append('title', title);
+                
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: payload
+                });
+                
+                const data = await response.json();
+                if(data.status === 'success') {
+                    displayResults(data.result);
+                } else {
+                    alert(`Error: ${data.message}`);
+                }
+            } catch (error) {
+                alert('Analysis failed: ' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function displayResults(result) {
+            const container = document.getElementById('resultContent');
+            let riskClass = 'risk-high';
+            if(result.risk_score < 30) riskClass = 'risk-low';
+            else if(result.risk_score < 70) riskClass = 'risk-medium';
+            
+            let html = `
+                <div class="p-4 rounded-lg ${riskClass}">
+                    <h3 class="text-lg font-semibold">
+                        Verdict: <span class="${result.verdict === 'Genuine' ? 'text-green-600' : 'text-red-600'}">
+                        ${result.verdict}</span>
+                        <span class="text-sm text-gray-600">(${result.risk_score.toFixed(1)}% Confidence)</span>
+                    </h3>
+                    ${result.warnings ? `<p class="mt-2">?? ${result.warnings}</p>` : ''}
+                </div>
+                
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h4 class="font-medium mb-2">Detailed Analysis</h4>
+                    <p><strong>Source Trust:</strong> ${(result.detailed_analysis.source_trust * 100).toFixed(1)}%</p>
+                    <p><strong>Content Trust:</strong> ${(result.detailed_analysis.content_trust * 100).toFixed(1)}%</p>
+                    <p class="mt-2"><strong>Linguistic Patterns:</strong> ${result.detailed_analysis.linguistic_analysis.join(', ')}</p>
+                    ${result.detailed_analysis.domain_check ? `<div class="mt-2">
+                        <strong>Domain Check:</strong> ${result.detailed_analysis.domain_check.risk} risk<br>
+                        ${result.detailed_analysis.domain_check.warning ? `?? ${result.detailed_analysis.domain_check.warning}<br>
+                        ${result.detailed_analysis.domain_check.details}` : ''}
+                    </div>` : ''}
+                </div>
+                
+                ${result.domain ? `<div class="text-sm text-gray-600 mt-2">
+                    Analyzed domain: ${result.domain}
+                </div>` : ''}
+            `;
+            container.innerHTML = html;
+            document.getElementById('results').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
